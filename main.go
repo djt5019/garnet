@@ -17,6 +17,21 @@ func signalHandler(signalChannel chan os.Signal, doneChannel chan bool){
     doneChannel <- true
 }
 
+func aggregateCollectorData(socket net.Listener) {
+    for {
+        readBuffer := make([]byte, 512)
+        fd, err := socket.Accept()
+        if err != nil {
+            log.Fatalf("Failed to accept a connection: err: %v\n", err)
+        }
+        bytesRead, err := fd.Read(readBuffer)
+        if err != nil {
+            log.Fatalf("Failed to read from the socket into the buffer: err: %v\n", err)
+        }
+        log.Printf("Got data: %s\n\n", readBuffer[:bytesRead])
+    }
+}
+
 func main() {
     // Create a channel to pass to os.Notify for OS signal handling
     signalChannel := make(chan os.Signal, 1)
@@ -32,6 +47,8 @@ func main() {
     defer socket.Close()
 
     log.Printf("Opened a socket connection '/tmp/garnet.sock'\n")
+
+    go aggregateCollectorData(socket)
 
     <- doneChannel
 }
