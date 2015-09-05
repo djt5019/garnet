@@ -91,12 +91,14 @@ func main() {
 
     // Start the aggregation collector
     aggregationDoneChannel := make(chan bool, 1)
-    cleanUpChannel := make(chan bool, 1)
-    go aggregateCollectorData(socket, aggregationDoneChannel, cleanUpChannel)
+    aggregationCleanUpChannel := make(chan bool, 1)
+    go aggregateCollectorData(socket, aggregationDoneChannel, aggregationCleanUpChannel)
 
     // Wait until we get a catchable signal before cleaning up
     <- signalDoneChannel
+
+    // Tell the collector aggregator to stop processing connections
     aggregationDoneChannel <- true
     mimicFinalClient("/tmp/garnet.sock")
-    <- cleanUpChannel
+    <- aggregationCleanUpChannel
 }
