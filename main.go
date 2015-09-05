@@ -28,7 +28,9 @@ func aggregateCollectorData(socket net.Listener) {
         if err != nil {
             log.Fatalf("Failed to read from the socket into the buffer: err: %v\n", err)
         }
-        log.Printf("Got data: %s\n\n", readBuffer[:bytesRead])
+        fd.Close()
+        data := readBuffer[:bytesRead]
+        log.Printf("Got data: %s, bytes: %v\n", data, data)
     }
 }
 
