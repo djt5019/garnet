@@ -1,6 +1,7 @@
 package main
 
 import (
+    "net"
     "log"
     "os"
     "os/signal"
@@ -23,6 +24,14 @@ func main() {
 
     doneChannel := make(chan bool, 1)
     go signalHandler(signalChannel, doneChannel)
+
+    socket, err := net.Listen("unix", "/tmp/garnet.sock")
+    if err != nil {
+        log.Fatalf("Failed to create a new Unix socket: err: %v\n", err)
+    }
+    defer socket.Close()
+
+    log.Printf("Opened a socket connection '/tmp/garnet.sock'\n")
 
     <- doneChannel
 }
