@@ -12,8 +12,23 @@ import (
     "time"
 )
 
-const sampleCollectorProgram = "./sampleCollector"
 const socketPath = "/tmp/garnet.sock"
+
+type Collector struct {
+    Command string
+    Ticker *time.Ticker
+}
+
+func NewCollector(command string, d time.Duration) Collector {
+    return Collector{
+        Command: command,
+        Ticker: time.NewTicker(d),
+    }
+}
+
+func (collector *Collector) Stop() {
+    collector.Ticker.Stop()
+}
 
 // Signal handler catches SIGINT and SIGTERM and sends a "done" flag to the main loop
 func signalHandler(signalChannel chan os.Signal, doneChannel chan bool){
@@ -78,14 +93,14 @@ func mimicFinalClient(socketUrl string) {
     conn.Close()
 }
 
-func launchCollector(command, socketUrl string, ticker *time.Ticker) {
+func launchCollector(collector *Collector, socketUrl string) {
     // This loop executes every time the ticker sends a "tick" message
     // to the channel after "duration" seconds.
-    for range ticker.C {
-        cmd := exec.Command(command, socketUrl)
+    for range collector.Ticker.C {
+        cmd := exec.Command(collector.Command, socketUrl)
         err := cmd.Run()
         if err != nil {
-            log.Printf("Failed to invoke collector %s, reason: %v", command, err)
+            log.Printf("Failed to invoke collector %s, reason: %v", collector.Command, err)
         }
     }
 }
@@ -111,14 +126,21 @@ func main() {
     go aggregateCollectorData(socket, aggregationDoneChannel, aggregationCleanUpChannel)
 
     // Fire a "tick" through the channel every 5 seconds
-    ticker := time.NewTicker(5 * time.Second)
-    go launchCollector(sampleCollectorProgram, socketPath, ticker)
+    collectors := make([]Collector, 5)
+    for i := 0; i < 5; i++ {
+        collector := NewCollector("./sampleCollector", 5 * time.Second)
+        collectors[i] = collector
+        go launchCollector(&collector, socketPath)
+    }
 
     // Wait until we get a catchable signal before cleaning up
     <- signalDoneChannel
 
     // Stop sending new ticks to the collector launching goroutine
-    ticker.Stop()
+    for _, collector := range collectors {
+        log.Printf("Stopping...")
+        collector.Stop()
+    }
 
     // Tell the collector aggregator to stop processing connections
     aggregationDoneChannel <- true
