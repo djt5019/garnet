@@ -6,10 +6,14 @@ import (
     "log"
     "os"
     "os/signal"
+    "os/exec"
     "syscall"
     "io"
+    "time"
 )
 
+const sampleCollectorProgram = "./sampleCollector"
+const socketPath = "/tmp/garnet.sock"
 
 // Signal handler catches SIGINT and SIGTERM and sends a "done" flag to the main loop
 func signalHandler(signalChannel chan os.Signal, doneChannel chan bool){
@@ -74,6 +78,18 @@ func mimicFinalClient(socketUrl string) {
     conn.Close()
 }
 
+func launchCollector(command, socketUrl string, ticker *time.Ticker) {
+    // This loop executes every time the ticker sends a "tick" message
+    // to the channel after "duration" seconds.
+    for range ticker.C {
+        cmd := exec.Command(command, socketUrl)
+        err := cmd.Run()
+        if err != nil {
+            log.Printf("Failed to invoke collector %s, reason: %v", command, err)
+        }
+    }
+}
+
 func main() {
     // Create a channel to pass to os.Notify for OS signal handling
     signalChannel := make(chan os.Signal, 1)
@@ -81,24 +97,31 @@ func main() {
     signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM)
     go signalHandler(signalChannel, signalDoneChannel)
 
-    socket, err := net.Listen("unix", "/tmp/garnet.sock")
+    socket, err := net.Listen("unix", socketPath)
     if err != nil {
         log.Fatalf("Failed to create a new Unix socket: err: %v\n", err)
     }
     defer socket.Close()
 
-    log.Printf("Opened a socket connection '/tmp/garnet.sock'\n")
+    log.Printf("Opened a socket connection '%s'\n", socketPath)
 
     // Start the aggregation collector
     aggregationDoneChannel := make(chan bool, 1)
     aggregationCleanUpChannel := make(chan bool, 1)
     go aggregateCollectorData(socket, aggregationDoneChannel, aggregationCleanUpChannel)
 
+    // Fire a "tick" through the channel every 5 seconds
+    ticker := time.NewTicker(5 * time.Second)
+    go launchCollector(sampleCollectorProgram, socketPath, ticker)
+
     // Wait until we get a catchable signal before cleaning up
     <- signalDoneChannel
 
+    // Stop sending new ticks to the collector launching goroutine
+    ticker.Stop()
+
     // Tell the collector aggregator to stop processing connections
     aggregationDoneChannel <- true
-    mimicFinalClient("/tmp/garnet.sock")
+    mimicFinalClient(socketPath)
     <- aggregationCleanUpChannel
 }
