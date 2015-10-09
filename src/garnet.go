@@ -5,12 +5,21 @@ import (
     "log"
     "os"
     "os/signal"
+    "io/ioutil"
     "syscall"
+    "path/filepath"
     "time"
+    "encoding/json"
 )
 
 const socketPath = "/tmp/garnet.sock"
+const configDir = "config"
 
+// Config holds the JSON configuration of each config file under the configDir
+type Config struct {
+        Command string `json:"command"`
+        Interval int `json:"interval"`
+}
 
 // Signal handler catches SIGINT and SIGTERM and sends a "done" flag to the main loop
 func signalHandler(signalChannel chan os.Signal, signalDoneChannel chan bool){
@@ -29,6 +38,39 @@ func mimicFinalClient(socketURL string) {
         log.Fatalf("Failed to open the final client connection to Garnet")
     }
     conn.Close()
+}
+
+// Create a list of collectors from all the config files in configDir
+func collectorsFromConfig(configDir string) []*Collector {
+    globs, err := filepath.Glob(filepath.Join(configDir, "*.json"))
+    if err != nil {
+        log.Fatalf("Failed to search for configs in: %s, reason: %v", configDir, err)
+    }
+
+    totalConsumers := len(globs)
+    collectors := make([]*Collector, totalConsumers)
+
+    for idx, path := range globs {
+        file, err := os.Open(path)
+        if err != nil {
+            log.Fatalf("Failed to open file: %s, reason: %v", path, err)
+        }
+
+        bytes, err := ioutil.ReadAll(file)
+        if err != nil {
+            log.Fatalf("Failed to read file: %s, reason: %v", path, err)
+        }
+
+        var cfg Config
+        err = json.Unmarshal(bytes, &cfg)
+        if err != nil {
+            log.Fatalf("Failed to parse JSON file: %s, reason: %v", path, err)
+        }
+
+        collector := NewCollector(path, cfg.Command, time.Duration(cfg.Interval) * time.Second)
+        collectors[idx] = collector
+    }
+    return collectors
 }
 
 // Run is the main entry point into garnet, packaged up behind a nice little func
@@ -53,10 +95,8 @@ func Run() {
     go AggregationWorker(socket, aggregationDoneChannel, aggregationCleanUpChannel)
 
     // Fire a "tick" through the channel every 5 seconds
-    collectors := make([]*Collector, 5)
-    for i := 0; i < 5; i++ {
-        collector := NewCollector("./sampleCollector", 5 * time.Second)
-        collectors[i] = collector
+    collectors := collectorsFromConfig(configDir)
+    for _, collector := range collectors {
         go collector.Start(socketPath)
     }
 
@@ -65,7 +105,7 @@ func Run() {
 
     // Stop sending new ticks to the collector launching goroutine
     for _, collector := range collectors {
-        log.Printf("Stopping...")
+        log.Printf("Stopping collector '%s' ...", collector.Name)
         collector.Stop()
     }
 

@@ -1,0 +1,5 @@
+{
+    "command": "./sampleCollector",
+    "interval": 1,
+    "destination": "localhost:8125"
+}
